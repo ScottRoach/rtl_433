@@ -1,5 +1,5 @@
 /** @file
-    EMOS 6016 Sensors contains DCF77, Temp, Hum, Windspeed, Winddir.
+    EMOS E6016 weatherstation with DCF77.
 
     Copyright (C) 2022 Dirk Utke-Woehlke <kardinal26@mail.de>
 
@@ -11,20 +11,10 @@
 
 #include "decoder.h"
 
-static uint8_t add_inverted(uint8_t *b, int len)
-{
-    int sum = 0;
-    for (int i = 0; i < len; i++) {
-        sum += b[i] ^ 0xff;
-    }
-    sum = (sum & 0xff) ^ 0xff;
-    return sum;
-}
-
 /**
-EMOS 6016 Sensors contains DCF77, Temp, Hum, Windspeed, Winddir.
+EMOS E6016 weatherstation with DCF77.
 
-DCF77 not supported at the currently.
+DCF77 not supported currently.
 
 - Manufacturer: EMOS
 - Transmit Interval: every ~61 s
@@ -50,9 +40,9 @@ Decoded record
 
 */
 
-static int emos6016_decode(r_device *decoder, bitbuffer_t *bitbuffer)
+static int emos_e6016_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
-    int r = bitbuffer_find_repeated_row(bitbuffer, 3, 120 - 8); // ignores the repeat byte
+    int r = bitbuffer_find_repeated_row(bitbuffer, 1, 120 - 8); // ignores the repeat byte
 
     if (r < 0) {
         decoder_log(decoder, 2, __func__, "Repeated row fail");
@@ -66,13 +56,17 @@ static int emos6016_decode(r_device *decoder, bitbuffer_t *bitbuffer)
         decoder_log(decoder, 2, __func__, "Length check fail");
         return DECODE_ABORT_LENGTH;
     }
+
     // model check 55 5a 7c
     if (b[0] != 0x55 || b[1] != 0x5a || b[2] != 0x7c) {
         decoder_log(decoder, 2, __func__, "Model check fail");
         return DECODE_ABORT_EARLY;
     }
+
+    bitbuffer_invert(bitbuffer);
+
     // check checksum
-    if (add_inverted(b, 13) != b[13]) {
+    if ((add_bytes(b, 13) & 0xff) != b[13]) {
         decoder_log(decoder, 2, __func__, "Checksum fail");
         return DECODE_FAIL_MIC;
     }
@@ -119,13 +113,13 @@ static char *output_fields[] = {
 };
 // n=EMOS6016,m=OOK_PWM,s=280,l=796,r=804,g=0,t=0,y=1836,rows>=3,bits=120
 r_device emos6016 = {
-        .name        = "EMOS 6016 DCF77, Temp, Hum, Windspeed, Winddir sensor",
+        .name        = "EMOS E6016 weatherstation with DCF77",
         .modulation  = OOK_PULSE_PWM,
         .short_width = 280,
         .long_width  = 796,
         .gap_limit   = 3000,
         .reset_limit = 804,
         .sync_width  = 1836,
-        .decode_fn   = &emos6016_decode,
+        .decode_fn   = &emos_e6016_decode,
         .fields      = output_fields,
 };

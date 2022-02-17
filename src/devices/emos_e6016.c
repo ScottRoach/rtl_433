@@ -19,9 +19,26 @@ DCF77 not supported currently.
 - Manufacturer: EMOS
 - Transmit Interval: every ~61 s
 - Frequency: 433.92 MHz
-- Modulation: OOK PWM
+- Modulation: OOK PWM, INVERTED
 
-RAW DATA:
+Data Layout:
+
+    PP PP PP II BK KK KK KK CT TT HH SS D? XX RR
+
+- P: (24 bit) preamble
+- I: (8 bit) ID
+- B: (4 bit) battery indication
+- K: (30 bit) datetime, encoding not known
+- C: (2 bit) channel
+- T: (12 bit) temperature, signed, scale 10
+- H: (8 bit) humidity
+- S: (8 bit) wind speed
+- D: (4 bit) wind direction
+- ?: (4 bit) unknown
+- X: (8 bit) checksum
+- R: (8 bit) repeat counter
+
+Raw data:
 
     [00] {120} 55 5a 7c 00 6a a5 60 e7 3f 36 da ff 5d 38 ff
     [01] {120} 55 5a 7c 00 6a a5 60 e7 3f 36 da ff 5d 38 fe
@@ -30,11 +47,11 @@ RAW DATA:
     [04] {120} 55 5a 7c 00 6a a5 60 e7 3f 36 da ff 5d 38 fb
     [05] {120} 55 5a 7c 00 6a a5 60 e7 3f 36 da ff 5d 38 fa
 
-BitBench String the raw data must be inverted
+Format string:
 
     MODEL?:8h8h8h ID?:8d BAT?4d SEC:30d CH:2d TEMP:12d HUM?8d WSPEED:8d WINDIR:4d ?4h CHK:8h REPEAT:8h
 
-Decoded record
+Decoded example:
 
     MODEL?:aaa583 ID?:255 BAT?09 SEC:0359300195 CH:0 TEMP:0201 HUM?037 WSPEED:000 WINDIR:10 ?2 CHK:c7 REPEAT:00
 
@@ -42,7 +59,7 @@ Decoded record
 
 static int emos_e6016_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
-    int r = bitbuffer_find_repeated_row(bitbuffer, 1, 120 - 8); // ignores the repeat byte
+    int r = bitbuffer_find_repeated_row(bitbuffer, 3, 120 - 8); // ignores the repeat byte
 
     if (r < 0) {
         decoder_log(decoder, 2, __func__, "Repeated row fail");
@@ -73,9 +90,10 @@ static int emos_e6016_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 
     int id         = b[3];
     int battery    = ((b[4] & 0xf0) >> 4);
+    int dcf77_raw  = ((b[4] & 0x0f) << 26) | (b[5] << 18) | (b[6] << 10) | (b[7] << 2) | (b[8] >> 6);
     int channel    = ((b[8] >> 4) & 0x3) + 1;
-    int temp_raw   = ((b[8] & 0x0f) << 8) | b[9];
-    float temp_c   = temp_raw >= 2048 ? (temp_raw - 4096) * 0.1 : temp_raw * 0.1;
+    int temp_raw   = (int16_t)(((b[8] & 0x0f) << 12) | (b[9] << 4)); // use sign extend
+    float temp_c   = (temp_raw >> 4) * 0.1f;
     int humidity   = b[10];
     float speed_ms = b[11];
     int dir_raw    = (((b[12] & 0xf0) >> 4));
@@ -83,14 +101,15 @@ static int emos_e6016_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 
     /* clang-format off */
     data_t *data = data_make(
-            "model",            "",                 DATA_STRING, "EMOS-6016",
+            "model",            "",                 DATA_STRING, "EMOS-E6016",
             "id",               "House Code",       DATA_INT,    id,
             "channel",          "Channel",          DATA_INT,    channel,
             "battery_ok",       "Battery_OK",       DATA_INT,    !!battery,
             "temperature_C",    "Temperature_C",    DATA_FORMAT, "%.1f", DATA_DOUBLE, temp_c,
             "humidity",         "Humidity",         DATA_FORMAT, "%u", DATA_INT, humidity,
-            "wind_avg_m_s" ,    "WindSpeed m_s",    DATA_FORMAT, "%.1f",  DATA_DOUBLE, speed_ms,
-            "wind_dir_deg"  ,   "Wind direction",   DATA_FORMAT, "%.1f",  DATA_DOUBLE, dir_deg,
+            "wind_avg_m_s",     "WindSpeed m_s",    DATA_FORMAT, "%.1f",  DATA_DOUBLE, speed_ms,
+            "wind_dir_deg",     "Wind direction",   DATA_FORMAT, "%.1f",  DATA_DOUBLE, dir_deg,
+            "datetime_raw",     "Raw DCF77",        DATA_FORMAT, "%08x",  DATA_INT, dcf77_raw,
             "mic",              "Integrity",        DATA_STRING, "CHECKSUM",
             NULL);
     /* clang-format on */
@@ -108,11 +127,12 @@ static char *output_fields[] = {
         "humidity",
         "wind_avg_m_s",
         "wind_dir_deg",
+        "datetime_raw",
         "mic",
         NULL,
 };
-// n=EMOS6016,m=OOK_PWM,s=280,l=796,r=804,g=0,t=0,y=1836,rows>=3,bits=120
-r_device emos6016 = {
+// n=EMOS-E6016,m=OOK_PWM,s=280,l=796,r=804,g=0,t=0,y=1836,rows>=3,bits=120
+r_device emos_e6016 = {
         .name        = "EMOS E6016 weatherstation with DCF77",
         .modulation  = OOK_PULSE_PWM,
         .short_width = 280,

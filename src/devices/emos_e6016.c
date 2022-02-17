@@ -49,11 +49,11 @@ Raw data:
 
 Format string:
 
-    MODEL?:8h8h8h ID?:8d BAT?4d SEC:30d CH:2d TEMP:12d HUM?8d WSPEED:8d WINDIR:4d ?4h CHK:8h REPEAT:8h
+    MODEL?:8h8h8h ID?:8d BAT?4d DAY?13d T?5d:6d:6d CH:2d TEMP:12d HUM?8d WSPEED:8d WINDIR:4d ?4h CHK:8h REPEAT:8h
 
 Decoded example:
 
-    MODEL?:aaa583 ID?:255 BAT?09 SEC:0359300195 CH:0 TEMP:0201 HUM?037 WSPEED:000 WINDIR:10 ?2 CHK:c7 REPEAT:00
+    MODEL?:aaa583 ID?:255 BAT?09 DAY:2741 T07:49:35 CH:0 TEMP:0201 HUM?037 WSPEED:000 WINDIR:10 ?2 CHK:c7 REPEAT:00
 
 */
 
@@ -91,6 +91,10 @@ static int emos_e6016_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     int id         = b[3];
     int battery    = ((b[4] & 0xf0) >> 4);
     int dcf77_raw  = ((b[4] & 0x0f) << 26) | (b[5] << 18) | (b[6] << 10) | (b[7] << 2) | (b[8] >> 6);
+    int dcf77_sec  = ((dcf77_raw >> 0) & 0x3f);
+    int dcf77_min  = ((dcf77_raw >> 6) & 0x3f);
+    int dcf77_hour = ((dcf77_raw >> 12) & 0x1f);
+    int dcf77_days = (dcf77_raw >> 17); // unknown coding
     int channel    = ((b[8] >> 4) & 0x3) + 1;
     int temp_raw   = (int16_t)(((b[8] & 0x0f) << 12) | (b[9] << 4)); // use sign extend
     float temp_c   = (temp_raw >> 4) * 0.1f;
@@ -98,6 +102,9 @@ static int emos_e6016_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     float speed_ms = b[11];
     int dir_raw    = (((b[12] & 0xf0) >> 4));
     float dir_deg  = dir_raw * 22.5f;
+
+    char dcf77_str[14]; // "8192T32:64:64"
+    sprintf(dcf77_str, "%dT%d:%d:%d", dcf77_days, dcf77_hour, dcf77_min, dcf77_sec);
 
     /* clang-format off */
     data_t *data = data_make(
@@ -110,6 +117,7 @@ static int emos_e6016_decode(r_device *decoder, bitbuffer_t *bitbuffer)
             "wind_avg_m_s",     "WindSpeed m_s",    DATA_FORMAT, "%.1f",  DATA_DOUBLE, speed_ms,
             "wind_dir_deg",     "Wind direction",   DATA_FORMAT, "%.1f",  DATA_DOUBLE, dir_deg,
             "datetime_raw",     "Raw DCF77",        DATA_FORMAT, "%08x",  DATA_INT, dcf77_raw,
+            "datetime_maybe",   "Maybe DCF77",      DATA_STRING, dcf77_str,
             "mic",              "Integrity",        DATA_STRING, "CHECKSUM",
             NULL);
     /* clang-format on */
@@ -128,6 +136,7 @@ static char *output_fields[] = {
         "wind_avg_m_s",
         "wind_dir_deg",
         "datetime_raw",
+        "datetime_maybe",
         "mic",
         NULL,
 };

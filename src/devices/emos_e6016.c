@@ -57,6 +57,13 @@ Decoded example:
 
 static int emos_e6016_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
+    for (int r = 0; r < bitbuffer->num_rows; ++r) {
+        if (bitbuffer->bits_per_row[r] == 120) {
+            bitbuffer->bits_per_row[r] = 120 - 8;
+        } else {
+            bitbuffer->bits_per_row[r] = 0;
+        }
+    }
     int r = bitbuffer_find_repeated_row(bitbuffer, 3, 120 - 8); // ignores the repeat byte
 
     if (r < 0) {
@@ -64,6 +71,7 @@ static int emos_e6016_decode(r_device *decoder, bitbuffer_t *bitbuffer)
         return DECODE_ABORT_EARLY;
     }
     decoder_logf(decoder, 2, __func__, "Found row: %d", r);
+    bitbuffer->bits_per_row[r] = 120;
 
     uint8_t *b = bitbuffer->bb[r];
     // we expect 120 bits
